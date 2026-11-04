@@ -1,0 +1,3 @@
+import { Nav } from './Nav';
+export function Layout({children}:{children:React.ReactNode}){ return <><Nav/><main className="mx-auto min-h-[calc(100vh-70px)] max-w-7xl px-5 py-8 md:py-12">{children}</main></> }
+export function PageIntro({eyebrow,title,description}:{eyebrow:string;title:string;description:string}){return <div className="mb-8"><p className="mb-3 text-xs font-bold uppercase tracking-[.2em] text-mint">{eyebrow}</p><h1 className="text-3xl font-bold tracking-tight text-white md:text-5xl">{title}</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{description}</p></div>}
