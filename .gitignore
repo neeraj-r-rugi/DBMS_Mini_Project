@@ -6,4 +6,6 @@ npm-debug.log*
 .venv/
 .vscode/
 node_modules/
-backend/
+backend/__pycache__/
+backend/couchdb.py
+backend/ml.py
