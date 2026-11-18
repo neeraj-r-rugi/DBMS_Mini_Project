@@ -71,10 +71,15 @@ COUCHDB_USER=admin COUCHDB_PASSWORD=your-password \
 
 MySQL provides the required `CAR`, `OWNER`, `APPRAISAL`, `SERVICE_HISTORY`,
 `INSURANCE`, and `REGISTRATION` tables, indexes, `vw_car_inventory`,
-`sp_get_cars_by_budget`, `fn_car_age`, and validation/default triggers.
+`sp_get_cars_by_budget`, `fn_car_age`, and validation/default triggers. On
+startup, the backend also creates its API catalog tables (`brands`,
+`car_models`, and `inventory`) and mirrors inventory rows into `CAR` and
+`APPRAISAL`, so both the API and coursework queries show the same cars.
 CouchDB provides the `used_car` and `used_car_service_history` databases.
 Documents retain the `Car` and `ServiceHistory` shapes and are linked by
-`car_id` and `service_id`.
+`car_id` and `service_id`. CouchDB is optional; when it is unavailable,
+metadata is omitted from details responses while service records continue to
+be stored in MySQL `SERVICE_HISTORY`.
 
 Useful API calls:
 

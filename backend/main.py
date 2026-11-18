@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from .database import init_db, query
+from .database import add_mysql_service, get_mysql_services, init_db, query, sync_mysql_car
 from .couchdb import get_couchdb_client, initialize_couchdb
 from .config import ADMIN_PASSWORD, ADMIN_USERNAME, COUCHDB_CAR_DATABASE, COUCHDB_URL
 from .ml import predict, load_model
@@ -93,27 +93,29 @@ def _create_inventory(item: InventoryItem):
 @app.post("/api/admin/inventory", status_code=201)
 def create_admin_inventory(item: InventoryCreate, _: None = Depends(require_admin)):
     result = _create_inventory(item)
+    sync_mysql_car(result["id"])
     client = get_couchdb_client()
-    if not client:
-        raise HTTPException(503, "CouchDB is not configured")
     car_id = f"CAR_{result['id']}"
-    client.put_document(
-        COUCHDB_CAR_DATABASE,
-        car_id,
-        {"_id": car_id, "car_id": car_id, **item.metadata.model_dump()},
-    )
+    if client:
+        client.put_document(
+            COUCHDB_CAR_DATABASE,
+            car_id,
+            {"_id": car_id, "car_id": car_id, **item.metadata.model_dump()},
+        )
     for index, service in enumerate(item.service_history, start=1):
         service_id = f"SERVICE_{result['id']}_{index}"
-        client.put_document(
-            client.service_database,
-            service_id,
-            {
-                "_id": service_id,
-                "service_id": service_id,
-                "car_id": car_id,
-                **service.model_dump(),
-            },
-        )
+        add_mysql_service(result["id"], service_id, service.service_date, service.service_cost, service.service_details)
+        if client:
+            client.put_document(
+                client.service_database,
+                service_id,
+                {
+                    "_id": service_id,
+                    "service_id": service_id,
+                    "car_id": car_id,
+                    **service.model_dump(),
+                },
+            )
     return result
 
 @app.get("/api/inventory/{item_id}/details")
@@ -130,7 +132,7 @@ def inventory_details(item_id: int):
         raise HTTPException(404, "Inventory item not found")
     client = get_couchdb_client()
     if not client:
-        return {"inventory": rows[0], "car_metadata": None, "service_history": []}
+        return {"inventory": rows[0], "car_metadata": None, "service_history": get_mysql_services(item_id)}
     car_id = f"CAR_{item_id}"
     metadata = client.get_document(COUCHDB_CAR_DATABASE, car_id)
     services = client.find(client.service_database, {"car_id": car_id})
@@ -159,17 +161,16 @@ def add_service_history(
 ):
     if not query("SELECT id FROM inventory WHERE id=?", (item_id,), True):
         raise HTTPException(404, "Inventory item not found")
-    client = get_couchdb_client()
-    if not client:
-        raise HTTPException(503, "CouchDB is not configured")
     service_id = f"SERVICE_{item_id}_{int(__import__('time').time() * 1000)}"
+    add_mysql_service(item_id, service_id, service.service_date, service.service_cost, service.service_details)
+    client = get_couchdb_client()
     document = {
         "_id": service_id,
         "service_id": service_id,
         "car_id": f"CAR_{item_id}",
         **service.model_dump(),
     }
-    return client.put_document(client.service_database, service_id, document)
+    return client.put_document(client.service_database, service_id, document) if client else document
 
 @app.patch("/api/inventory/{item_id}")
 def update_inventory(item_id: int, update: InventoryUpdate):
@@ -178,6 +179,7 @@ def update_inventory(item_id: int, update: InventoryUpdate):
     fields = ",".join(f"{k}=?" for k in values)
     changed = query(f"UPDATE inventory SET {fields}, updated_at=CURRENT_TIMESTAMP WHERE id=?", (*values.values(),item_id))
     if not changed: raise HTTPException(404, "Inventory item not found")
+    sync_mysql_car(item_id)
     return query("SELECT * FROM inventory WHERE id=?", (item_id,), True)[0]
 
 @app.delete("/api/admin/inventory/{item_id}", status_code=204)
